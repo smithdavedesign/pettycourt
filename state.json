@@ -1,0 +1,16 @@
+{
+  "stage": "build",
+  "review": {
+    "verdict": "pass",
+    "score": 4,
+    "summary": "A fun summons-and-jury twist on AI-judge apps, but there is zero evidence anyone pays for a joke verdict and the flow is copyable in a weekend. If it's worth anything, it's a Court mode inside tiebreak, not its own product.",
+    "at": "2026-10-13T08:00:55.104Z"
+  },
+  "updatedAt": "2026-10-13T08:16:46.084Z",
+  "ownerApproved": true,
+  "ownerDecision": {
+    "decision": "build",
+    "at": "2026-10-13T08:16:46.084Z",
+    "source": "repohq"
+  }
+}

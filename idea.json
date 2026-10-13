@@ -1,0 +1,32 @@
+{
+  "title": "pettycourt — Group Chat Court: a mock trial for petty arguments",
+  "repoName": "pettycourt",
+  "oneLiner": "For friends, couples and roommates in a petty dispute, it turns the argument into a summons link, a friend jury and an AI judge's funny ruling on a shareable card, and the invite brings the other side in.",
+  "overlaps": "tiebreak (live two-option polls with voting, sharing and $5 payments) — the jury vote is a poll, so this could ship as a tiebreak mode; also single-user AI-judge apps (The Docket, Am I Wrong? AI Judge, SettleitGPT) that lack a summons and jury",
+  "tags": [
+    "fun",
+    "consumer",
+    "one-time",
+    "reach:viral",
+    "ai",
+    "friends",
+    "games"
+  ],
+  "effort": "Low",
+  "confidence": "Low",
+  "sources": [
+    "https://apps.apple.com/us/app/settleitgpt/id6743547528",
+    "https://appgoblin.info/apps/6768784454",
+    "https://www.producthunt.com/p/the-docket",
+    "https://hn.svelte.dev/item/48392474",
+    "https://apps.apple.com/app/6758064048",
+    "https://www.techradar.com/ai-platforms-assistants/chatgpt/chatgpt-enters-the-group-chat-globally",
+    "https://greatleadership.substack.com/p/overusing-ai-tools-hurts-critical-thinking-and-human-connection",
+    "https://mwm.ai/apps/ai-judgement/6748558666",
+    "https://magmaroni.itch.io/your-honor-wtf",
+    "https://www.etsy.com/listing/4429806679/printable-gift-certificates-bundle"
+  ],
+  "seedId": "seed-169f7a",
+  "slug": "pettycourt",
+  "recordedAt": "2026-10-13T08:00:18.595Z"
+}

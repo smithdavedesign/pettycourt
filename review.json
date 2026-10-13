@@ -1,0 +1,55 @@
+{
+  "verdict": "pass",
+  "score": 4,
+  "summary": "A fun summons-and-jury twist on AI-judge apps, but there is zero evidence anyone pays for a joke verdict and the flow is copyable in a weekend. If it's worth anything, it's a Court mode inside tiebreak, not its own product.",
+  "forcingQuestions": {
+    "demand": {
+      "score": 2,
+      "evidence": "Only anecdotes (RESEARCH.md: HuffPost/Reddit via Substack, TechRadar on ChatGPT group chats). Six small competitors exist, but Am I Wrong? has ~50 installs and 1 rating, The Docket 0 reviews, Camera Court no ratings. No source shows a paying customer. Builders believing in it is not demand."
+    },
+    "statusQuo": {
+      "score": 5,
+      "evidence": "Status quo is real and free: ask ChatGPT, or argue in the group chat. That is a workable workaround, so the product must beat free on fun alone. The two-sided flow is a real gap, but the pain is mild."
+    },
+    "specificity": {
+      "score": 3,
+      "evidence": "Target is '18-35 in a group chat of 3-10 friends, couples, roommates': a category, not a named person. No interviews. The consequence of the problem is a joke, not a career or daily pain. Critics (Show HN) say the loser quits."
+    },
+    "wedge": {
+      "score": 5,
+      "evidence": "File, summon, rule is genuinely small and the verdict card is a clean artifact. But the paid wedge ($3 trial, $5 print) has no price evidence; seen joke purchases cost $0.99."
+    },
+    "futureFit": {
+      "score": 3,
+      "evidence": "ChatGPT group chats (up to 20 people) and native chatbots will absorb referee-my-argument use. A novelty that buys once has no retention and no moat."
+    }
+  },
+  "premises": [
+    "People want the other side to submit testimony; supported only by critique of single-user apps, not by user evidence.",
+    "A friend-jury plus a funny tone avoids the 'it always says I'm wrong' quit risk; unsupported.",
+    "The defendant will actually show up via a summons link (target 40%); unknown and the crux of the loop.",
+    "Someone will pay $3 for a joke trial; contradicted by the $0.99 comparable and no paying-customer evidence.",
+    "The summons and jury links create a viral loop; plausible but unmeasured."
+  ],
+  "alternatives": [
+    "Minimal: a 'Court' mode inside tiebreak, reusing its voting, sharing and $5 payments (the research's own recommendation); days of work, no new product.",
+    "Ideal: standalone pettycourt with summons, jury, appeal, card and print upsell; the full M1-M4 plan, highest effort for unproven payment.",
+    "Lateral: a free, ad-free viral verdict-card generator used as a top-of-funnel for tiebreak, with no payment layer at all."
+  ],
+  "wedge": "Summons link + defendant testimony + AI ruling + shareable card, free, shipped as a tiebreak mode.",
+  "feasibility": {
+    "m1Weekend": true,
+    "zeroCost": true,
+    "notes": "Next.js on Vercel Hobby, Neon free, free model via LiteLLM; M1 is four endpoints. One test: POST /cases then a second submission on the summons token returns 409 and rule returns a 40-200 word ruling. Payments need a non-Hobby host later, so M1 itself is a free test only."
+  },
+  "risks": [
+    "No evidence of willingness to pay; the market is a pile of tiny unpaid apps.",
+    "Copyable in a weekend; ChatGPT group chats cover the base case free.",
+    "Defendant may not respond, which kills the loop.",
+    "Moderation, harassment and minors burden for a near-zero-time owner.",
+    "Overlaps tiebreak; splitting attention across two thin products."
+  ],
+  "killCriteria": "Under 40% of cases get a defendant response, under 25% get 2+ jury votes, or fewer than 1 in 30 cases pays; any of these means fold into tiebreak or stop.",
+  "landing": null,
+  "launch": null
+}
