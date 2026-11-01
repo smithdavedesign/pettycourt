@@ -1,12 +1,14 @@
 // Server-rendered pages. Every interpolation goes through Hono's `html` tag, which escapes user and
-// model text; nothing here uses `raw`. Pages never print a token except on the page reached through
-// that same token (the summons page, the jury page) or the plaintiff's private page, which shows the
-// links the plaintiff was given at filing. The plaintiff token is never on a page anyone else sees.
+// model text. The one `raw` is the public pages' JSON-LD (src/seo.js), which holds no user or model text
+// and escapes `<`. Pages never print a token except on the page reached through that same token (the
+// summons page, the jury page) or the plaintiff's private page, which shows the links the plaintiff was
+// given at filing. The plaintiff token is never on a page anyone else sees.
 
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { VERDICT_LABELS } from './judge.js';
 import { APPEAL_PRICE_LABEL } from './payments.js';
 import { DECLINE_MESSAGE } from './scope.js';
+import { ISSUES_URL, SHARE_IMAGE, SITE_NAME } from './seo.js';
 import { APPEAL_SIDES, REPORT_REASONS, RETENTION_MS } from './store.js';
 
 const MINUTE = 60 * 1000;
@@ -53,12 +55,44 @@ export function timeLeft(deadline, now) {
   return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
+// A case is shared by its links and listed nowhere, so every page but the public ones asks not to be indexed.
+const NOINDEX = html`<meta name="robots" content="noindex">
+`;
+
 /**
- * @param {{ title: string, body: unknown, head?: unknown, visit?: { caseId: string, plaintiff?: boolean } | null }} page
+ * The <head> of a public page (go-live): description, canonical, Open Graph and Twitter cards with the
+ * share image, and the JSON-LD.
+ * @param {ReturnType<typeof import('./seo.js').pageMeta>} meta
+ */
+function seoHead(meta) {
+  return html`<meta name="description" content="${meta.description}">
+<link rel="canonical" href="${meta.canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${SITE_NAME}">
+<meta property="og:title" content="${meta.title}">
+<meta property="og:description" content="${meta.description}">
+<meta property="og:url" content="${meta.canonical}">
+<meta property="og:image" content="${meta.image}">
+<meta property="og:image:width" content="${SHARE_IMAGE.width}">
+<meta property="og:image:height" content="${SHARE_IMAGE.height}">
+<meta property="og:image:alt" content="${SHARE_IMAGE.alt}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${meta.title}">
+<meta name="twitter:description" content="${meta.description}">
+<meta name="twitter:image" content="${meta.image}">
+<script type="application/ld+json">${raw(meta.jsonLd)}</script>
+`;
+}
+
+/**
+ * @param {{ title: string, body: unknown, head?: unknown, visit?: { caseId: string, plaintiff?: boolean } | null,
+ *   meta?: ReturnType<typeof import('./seo.js').pageMeta> | null }} page
  *   visit (M5): the page shows this case, so the client script counts the browser as a visitor once
  *   (or, with `plaintiff`, remembers it as the plaintiff's and never counts it).
+ *   meta (go-live): a public page, so it's indexable and gets its own title and the SEO <head>; every
+ *   other page stays noindex.
  */
-function layout({ title, body, head = '', visit = null }) {
+function layout({ title, body, head = '', visit = null, meta = null }) {
   const main = visit
     ? html`<main data-visit="${visit.caseId}"${visit.plaintiff ? html` data-visitor="plaintiff"` : ''}>`
     : html`<main>`;
@@ -67,8 +101,7 @@ function layout({ title, body, head = '', visit = null }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>${title} · Group Chat Court</title>
+${meta ? seoHead(meta) : NOINDEX}<title>${meta ? meta.title : `${title} · ${SITE_NAME}`}</title>
 ${head}<link rel="stylesheet" href="/app.css">
 <script src="/app.js" defer></script>
 </head>
@@ -76,7 +109,7 @@ ${head}<link rel="stylesheet" href="/app.css">
 ${main}
 ${body}
 </main>
-<footer><a href="/">Group Chat Court</a>: a mock trial for petty arguments. Rulings are jokes, not legal advice. <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></footer>
+<footer><a href="/">Group Chat Court</a>: a mock trial for petty arguments. Rulings are jokes, not legal advice. <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="${ISSUES_URL}">Contact</a></footer>
 </body>
 </html>`;
 }
@@ -114,16 +147,26 @@ function reportForm(c) {
 </form></details>`;
 }
 
+/** How long the operator takes to confirm a Payment Link payment by hand and email the appeal link. */
+export const MANUAL_CONFIRM_DAYS = 2;
+
 /**
- * "Full trial · $3". With payments on (M4) it's Stripe Checkout, offered once the case is ruled and
- * until it's paid; the appeal section takes over after that.
+ * "Full trial · $3". With payments on it's a Buy button (data-buy, which the client script reports as a
+ * RepoHQ "checkout"), offered once the case is ruled and until it's paid; the appeal section takes over
+ * after that. `checkout` is 'stripe' (M4's Checkout Session, confirmed by Stripe) or 'link' (go-live: the
+ * Stripe Payment Link from STRIPE_PAYMENT_LINK, confirmed by hand). Without either it's M3's fake door.
  */
 function unlockSection(c, { checkout }) {
   if (!checkout) return fakeDoor(c);
   if (c.appealedAt) return null;
+  const byLink = checkout === 'link';
   if (c.paidAt) {
     return html`<section class="unlock"><h2>Full trial · paid</h2>
-<p>This case's appeal is paid for. Whoever paid files it from the page Stripe sent them back to, which is also linked in their receipt email.</p></section>`;
+<p>This case's appeal is paid for. Whoever paid files it from ${
+      byLink
+        ? 'the link we emailed them'
+        : 'the page Stripe sent them back to, which is also linked in their receipt email'
+    }.</p></section>`;
   }
   if (!c.ruledAt) {
     return html`<section class="unlock"><h2>Full trial · $3</h2>
@@ -131,11 +174,15 @@ function unlockSection(c, { checkout }) {
   }
   return html`<section class="unlock"><h2>Full trial · $3</h2>
 <p>Not happy with the verdict? Bring new evidence and the judge hears the case again. One appeal per case, filed by whoever pays.</p>
-<form data-api="/cases/${c.id}/checkout" data-then="redirect" data-pending="Opening the secure checkout…">
-  <button>Appeal the verdict · $3</button>
+<form data-api="/cases/${c.id}/checkout" data-then="redirect" data-buy data-pending="Opening the secure checkout…">
+  <button>${byLink ? 'Buy the appeal · $3' : 'Appeal the verdict · $3'}</button>
   ${statusLine}
 </form>
-<p class="small">Payment by Stripe, which emails your receipt with the link to your appeal. By paying you agree to the <a href="/terms">terms</a>. Refunds on request within ${REFUND_DAYS} days.</p>
+<p class="small">${
+    byLink
+      ? `Payment by Stripe. We confirm payments by hand, then email you the link to file your appeal within ${MANUAL_CONFIRM_DAYS} days.`
+      : 'Payment by Stripe, which emails your receipt with the link to your appeal.'
+  } By paying you agree to the <a href="/terms">terms</a>. Refunds on request within ${REFUND_DAYS} days.</p>
 </section>`;
 }
 
@@ -164,9 +211,11 @@ function fakeDoor(c) {
 </section>`;
 }
 
-export function homePage() {
+/** @param {{ meta?: ReturnType<typeof import('./seo.js').pageMeta> | null }} [site] */
+export function homePage({ meta = null } = {}) {
   return layout({
     title: 'File a case',
+    meta,
     body: html`<p class="kicker">Group Chat Court</p>
 <h1>Settle it in court.</h1>
 <p class="lede">File a petty case, send the other side a summons link, let your friends vote as the jury, and let an AI judge rule on both stories. Free.</p>
@@ -251,7 +300,7 @@ export function takenDownPage({ caseId, token, refundTo = null } = {}) {
     body: html`<p class="kicker">Group Chat Court</p>
 <h1>This case was taken down.</h1>
 <p>Someone reported it, so the court took it down for everyone and no longer shows what's in it.</p>
-${refundTo !== null && html`<p>You paid for an appeal on this case, which can't be heard now, so you're owed a refund: ${contactLine(refundTo || null)} with this page's link.</p>`}
+${refundTo !== null && html`<p>You paid for an appeal on this case, which can't be heard now, so you're owed a refund: ${refundLine(refundTo || null)}.</p>`}
 ${
   token
     ? html`<p>As one of the parties, you can delete it now. Otherwise it's deleted automatically 30 days after it was filed.</p>
@@ -368,11 +417,13 @@ ${
 /**
  * @param {import('./store.js').Case} c
  * @param {Date} now
- * @param {{ jury: import('./store.js').JuryTally | null, comments: import('./store.js').Vote[], origin: string, checkout?: boolean }} jurySide
+ * @param {{ jury: import('./store.js').JuryTally | null, comments: import('./store.js').Vote[], origin: string,
+ *   checkout?: 'stripe' | 'link' | null }} jurySide
  *   jury is null on a declined case, which shows neither the jury nor the card. checkout: payments are
- *   on (M4), so "Full trial · $3" is Stripe Checkout rather than the fake door.
+ *   on, so "Full trial · $3" is a Buy button (M4's Stripe Checkout, or go-live's Payment Link) rather
+ *   than the fake door.
  */
-export function casePage(c, now, { jury, comments, origin, checkout = false }) {
+export function casePage(c, now, { jury, comments, origin, checkout = null }) {
   const noShow = isNoShow(c, now);
   const cardPath = `/cases/${c.id}/card.png`;
 
@@ -492,20 +543,28 @@ ${reportForm(c)}`,
 
 const SIDE_CHOICES = { plaintiff: "I'm the plaintiff (I filed the case)", defendant: "I'm the defendant (I was summoned)" };
 
-/** "email court@example.com" as a link, or a pointer to the terms when no contact is published. */
+/** "email court@example.com" as a link, or the repo's issues when no address is published. */
 const contactLine = (contactEmail) =>
   contactEmail
     ? html`email <a href="mailto:${contactEmail}">${contactEmail}</a>`
-    : html`use the contact on the <a href="/terms">terms page</a>`;
+    : html`open an issue at <a href="${ISSUES_URL}">${ISSUES_URL.replace('https://', '')}</a>`;
+
+/** How a payer asks for a refund: by email with their appeal link, or in a public issue without it. */
+const refundLine = (contactEmail) =>
+  contactEmail
+    ? html`${contactLine(contactEmail)} with this page's link`
+    : html`${contactLine(null)} with the receipt number from Stripe's email. Issues are public, so don't post this page's link there`;
 
 /**
  * The payer's page, reached through their click id (Stripe's success URL and the receipt's link):
  * the payment, then the appeal form, then the appeal.
  * @param {import('./store.js').Case} c
  * @param {import('./store.js').Click} click
- * @param {{ contactEmail: string | null, checking: boolean }} options  checking: Stripe couldn't be asked just now
+ * @param {{ contactEmail: string | null, checking: boolean, receiptLinks?: boolean }} options  checking: Stripe
+ *   couldn't be asked just now. receiptLinks: Stripe's receipt links back here (M4's Checkout; not a Payment
+ *   Link, whose payments the operator confirms by hand and answers with this page's link).
  */
-export function appealPage(c, click, { contactEmail, checking }) {
+export function appealPage(c, click, { contactEmail, checking, receiptLinks = true }) {
   let body;
   if (!click.paidAt) {
     const status = checking
@@ -513,10 +572,12 @@ export function appealPage(c, click, { contactEmail, checking }) {
       : html`We haven't received this payment yet.`;
     body = html`<p>${status} If you've just paid, reload this page in a minute. Otherwise <a href="/cases/${c.id}">go back to the case</a> to try again.</p>`;
   } else {
-    const receipt = html`<p class="paid">Paid ${APPEAL_PRICE_LABEL} on ${day(click.paidAt)}. Stripe emails your receipt, with a link back to this page. Keep this page's link: it's your appeal.</p>`;
+    const receipt = html`<p class="paid">Paid ${APPEAL_PRICE_LABEL} on ${day(click.paidAt)}.${
+      receiptLinks ? ' Stripe emails your receipt, with a link back to this page.' : ''
+    } Keep this page's link: it's your appeal.</p>`;
     if (c.appealedAt && c.appealClickId !== click.id) {
       body = html`${receipt}
-<p>Someone else already filed this case's one appeal, so your payment bought nothing. You're owed a refund: ${contactLine(contactEmail)} with this page's link.</p>
+<p>Someone else already filed this case's one appeal, so your payment bought nothing. You're owed a refund: ${refundLine(contactEmail)}.</p>
 ${appealSection(c, { actions: false })}`;
     } else if (c.appealedAt) {
       body = html`${receipt}
@@ -552,13 +613,21 @@ ${body}
   });
 }
 
-/** @param {{ contactEmail: string | null, payments: boolean }} site */
-export function termsPage({ contactEmail, payments }) {
-  let sale = null;
-  if (!contactEmail) sale = html`<p><strong>No contact address has been published yet, so payments are switched off.</strong></p>`;
-  else if (!payments) sale = html`<p><strong>Payments aren't switched on yet, so the full trial can't be bought yet.</strong></p>`;
+/** The repo's issues, the public contact, as a link. */
+const issuesLink = html`<a href="${ISSUES_URL}">${ISSUES_URL.replace('https://', '')}</a>`;
+
+/**
+ * @param {{ contactEmail: string | null, checkout: 'stripe' | 'link' | null,
+ *   meta?: ReturnType<typeof import('./seo.js').pageMeta> | null }} site
+ *   checkout: how the $3 appeal is sold right now (null: it isn't, the fake door is up).
+ */
+export function termsPage({ contactEmail, checkout, meta = null }) {
+  const sale = checkout
+    ? null
+    : html`<p><strong>Payments are switched off for now, so the full trial can't be bought yet.</strong></p>`;
   return layout({
     title: 'Terms',
+    meta,
     body: html`<p class="kicker">Group Chat Court</p>
 <h1>Terms</h1>
 <section><h2>What this is</h2>
@@ -567,27 +636,37 @@ export function termsPage({ contactEmail, payments }) {
 <p>You must be 18 or older. Petty disputes only: no abuse, health, money or minors. Don't name or describe anyone who isn't part of the argument, and don't use it to bully anyone.</p></section>
 <section><h2>Cases</h2>
 <p>A case is shared by its links and isn't listed anywhere. Either party can delete it at any time from their own link, and every case is deleted automatically 30 days after it was filed, with everything attached to it. Anyone with a link can report a case, which takes it down at once.</p></section>
-<section><h2>The full trial: ${APPEAL_PRICE_LABEL} (USD)</h2>
+<section><h2>The full trial: ${APPEAL_PRICE_LABEL} (USD), once</h2>
 ${sale}
-<p>The full trial is one appeal for one case, paid once through Stripe Checkout after the ruling. The person who pays adds new evidence (text, up to ${EVIDENCE_MAX} characters), and the AI judge hears the case again and upholds or overturns the verdict. Each case can be appealed once, by whoever files first. The appeal ruling appears on the case page and the verdict card, and is deleted with the case.</p>
+<p>Filing a case, the jury and the ruling are free. The full trial is one appeal for one case, paid once (${APPEAL_PRICE_LABEL}, no subscription) through Stripe after the ruling. The person who pays adds new evidence (text, up to ${EVIDENCE_MAX} characters), and the AI judge hears the case again and upholds or overturns the verdict. Each case can be appealed once, by whoever files first. The appeal ruling appears on the case page and the verdict card, and is deleted with the case.</p>
+${
+  checkout === 'link' &&
+  html`<p>We confirm payments by hand: within ${MANUAL_CONFIRM_DAYS} days of paying, we email the link to file your appeal to the address you gave Stripe.</p>`
+}
 <p>Stripe processes the payment and emails your receipt. We never see your card details.</p>
 <p><strong>Refunds:</strong> on request within ${REFUND_DAYS} days of paying, for any reason, including when the court declines to hear your appeal, the case is deleted or taken down before it's heard, or someone else filed the case's appeal first. ${
-      contactEmail ? html`Email <a href="mailto:${contactEmail}">${contactEmail}</a> with your appeal link.` : ''
-    }</p></section>
-<section><h2>Contact</h2>
-<p>${
       contactEmail
-        ? html`Questions, refunds or a takedown that went wrong: <a href="mailto:${contactEmail}">${contactEmail}</a>.`
-        : 'No contact address has been published yet.'
+        ? html`Email <a href="mailto:${contactEmail}">${contactEmail}</a> with your appeal link.`
+        : html`Open an issue at ${issuesLink} with the receipt number from Stripe's email. Issues are public, so don't post your appeal link there.`
+    }</p></section>
+<section><h2>No warranty</h2>
+<p>Group Chat Court is provided as is, without warranty of any kind. It can be down, lose a case or get one wrong, and its judge is an AI model that can rule badly. As far as the law allows, we aren't liable for anything that comes of using it, and if you paid for an appeal, the most we owe you is your ${APPEAL_PRICE_LABEL} back.</p></section>
+<section><h2>Contact</h2>
+<p>Questions, bugs or a takedown that went wrong: open an issue at ${issuesLink}. Issues are public, so don't post case links or personal details there.${
+      contactEmail ? html` For refunds or anything private, email <a href="mailto:${contactEmail}">${contactEmail}</a>.` : ''
     }</p></section>
 <p class="small">These terms can change; the version on this page is the one that applies. See also the <a href="/privacy">privacy page</a>.</p>`,
   });
 }
 
-/** @param {{ contactEmail: string | null }} site */
-export function privacyPage({ contactEmail }) {
+/**
+ * @param {{ contactEmail: string | null, checkout?: 'stripe' | 'link' | null,
+ *   meta?: ReturnType<typeof import('./seo.js').pageMeta> | null }} site
+ */
+export function privacyPage({ contactEmail, checkout = null, meta = null }) {
   return layout({
     title: 'Privacy',
+    meta,
     body: html`<p class="kicker">Group Chat Court</p>
 <h1>Privacy</h1>
 <section><h2>What is stored</h2>
@@ -599,18 +678,36 @@ export function privacyPage({ contactEmail }) {
 <li>For a paid appeal: the Stripe Checkout session id and when it was paid. We never see or store your card details.</li>
 <li>How many different browsers opened a case's links. Your browser keeps a list of the cases it has opened (in its own storage, under <code>pc_seen</code>), so each browser is counted once per case and the browser that filed the case isn't counted at all. The server keeps only the number.</li>
 </ul>
-<p>There are no accounts, no ads, no third-party trackers and no other cookies.</p></section>
+<p>There are no accounts and no ads. Apart from the three launch counts below, nothing is sent to an analytics or advertising service.</p></section>
+<section><h2>Cookies</h2>
+<p>Only one, and only for jury duty: <code>pc_device</code>, described above, is sent only to jury links so that each device votes once. There are no other cookies, and none from anyone else.</p></section>
+<section><h2>Launch counts</h2>
+<p>To see whether anyone uses Group Chat Court, the live site sends three kinds of anonymous count to RepoHQ, the dashboard where its maker tracks which projects get used (<code>idea-factory.1426davejobs.workers.dev</code>, on Cloudflare Workers):</p>
+<ul>
+<li><strong>visit</strong>: once per browser session, from the first page you open;</li>
+<li><strong>activate</strong>: the first time your browser files a case;</li>
+<li><strong>checkout</strong>: each time someone presses the button to buy the $3 appeal.</li>
+</ul>
+<p>Each count holds only the product's name (pettycourt), which of the three it is, and the address of the website that sent you here when it's another site. It never holds a link to a case, anything you wrote, a cookie or an id. Your browser remembers what it already sent, in its own storage (<code>repohq:visit</code> for the session, <code>repohq:activated</code> for good). Nothing is sent from automated browsers or from test deployments. To opt out, set <code>repohq:notrack</code> in this site's local storage, for example by running <code>localStorage.setItem("repohq:notrack", "1")</code> in your browser's console.</p></section>
 <section><h2>Who else handles it</h2>
 <ul>
 <li><strong>Google</strong> (the Gemini API's free tier) receives the case file to write each ruling, and may use it to improve its products.</li>
-<li><strong>Stripe</strong> processes payments, emails receipts and keeps its own payment records under its own privacy policy.</li>
+<li><strong>Stripe</strong> processes payments, emails receipts and keeps its own payment records under its own privacy policy.${
+  checkout === 'link' &&
+  html` Stripe shows us the email address you pay with, which we use only to send you the link to your appeal and to answer a refund request.`
+}</li>
 <li>The database runs on Neon, and the app on Vercel or Render, which keep short request logs that include the links opened.</li>
+<li><strong>RepoHQ</strong> receives the launch counts above, and nothing else.</li>
 </ul></section>
 <section><h2>How long, and how to delete it</h2>
 <p>Every case is deleted automatically 30 days after filing, with its votes, comments, reports, clicks, emails, appeal and payment record. Either party can delete it sooner from their own link. A report takes a case down at once. Copies outside the app, such as a downloaded card, a chat app's link preview or Stripe's payment records, are out of our reach.</p>
 <p>When a case is deleted, an anonymous record of how it went is kept, to decide whether Group Chat Court works. It holds the day it was filed, whether the other side answered, whether it was ruled, reported, clicked or paid, how many votes and visitors it had, and our safety review's result. It holds no text, links or ids from the case, so nothing in it points back to the case or to you.</p></section>
 <section><h2>Contact</h2>
-<p>To ask about your data, ${contactLine(contactEmail)}.</p></section>`,
+<p>To ask about your data, ${contactLine(contactEmail)}.${
+      contactEmail
+        ? html` Questions and bugs can also go to ${issuesLink}.`
+        : html` Issues are public, so don't post case links or personal details there.`
+    }</p></section>`,
   });
 }
 
@@ -628,14 +725,66 @@ export function notFoundPage() {
 // data-method="DELETE"), with data-token as a bearer token and a confirm() first when data-confirm is
 // set. Then it reveals a panel filled from the reply (data-then="reveal" data-reveal="<id>"), goes to
 // /deleted, reloads, goes to the reply's url (data-then="redirect": the server only ever answers with a
-// Stripe Checkout URL it has checked), or goes to the case page. Text only ever goes in via textContent/value.
+// Stripe Checkout URL it has checked, or the operator's Payment Link), or goes to the case page. Text only
+// ever goes in via textContent/value.
 // M5: on a page whose <main> has data-visit, it also reports this browser's first visit to that case.
-export const CLIENT_JS = `"use strict";
+// Go-live: with `signal` (the production deployment, src/config.js) it sends RepoHQ's three launch counts.
+
+/** RepoHQ's counter (go-live): the only other origin the pages talk to, and only from production. */
+export const SIGNAL_URL = 'https://idea-factory.1426davejobs.workers.dev/api/ideas/signal';
+export const SIGNAL_SLUG = 'pettycourt';
+
+/**
+ * The client script. `signal`: send RepoHQ's launch counts ("visit" once per browser session, "activate"
+ * the first time this browser files a case, "checkout" on a Buy button). Even then nothing goes out from
+ * an automated browser (navigator.webdriver) or one with localStorage "repohq:notrack" set. Each count
+ * carries the slug, the kind and the referring site (only when it's another origin), and no cookie or
+ * Referer, so a case link never leaves the page. It's a CORS-safelisted text/plain POST of JSON, so the
+ * counter needs no preflight (which keepalive requests can't always make) and the page needs no answer.
+ * @param {{ signal?: boolean }} [options]
+ */
+export function clientScript({ signal = false } = {}) {
+  return `"use strict";
+const SIGNAL_ON = ${signal ? 'true' : 'false'};
+
+function sendSignal(kind) {
+  let referrer = null;
+  if (document.referrer && new URL(document.referrer).origin !== location.origin) referrer = document.referrer;
+  fetch(${JSON.stringify(SIGNAL_URL)}, {
+    method: "POST",
+    mode: "no-cors",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    keepalive: true,
+    headers: { "content-type": "text/plain;charset=UTF-8" },
+    body: JSON.stringify({ slug: ${JSON.stringify(SIGNAL_SLUG)}, kind, referrer }),
+  }).catch(() => {});
+}
+
+// once: () => the Storage that remembers it was sent (sessionStorage, localStorage), and key its name.
+function signal(kind, once, key) {
+  if (!SIGNAL_ON) return;
+  try {
+    if (navigator.webdriver || localStorage.getItem("repohq:notrack") !== null) return;
+    if (once) {
+      const storage = once();
+      if (storage.getItem(key) !== null) return;
+      storage.setItem(key, "1");
+    }
+    sendSignal(kind);
+  } catch {
+    // No storage, or storage that refuses: there's no way to count once, so nothing is sent.
+  }
+}
+
+signal("visit", () => sessionStorage, "repohq:visit");
+
 document.addEventListener("submit", async (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-api")) return;
   event.preventDefault();
   if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
+  if (form.hasAttribute("data-buy")) signal("checkout");
   const status = form.querySelector("[data-status]");
   const button = form.querySelector("button:not([type=button])");
   const say = (text) => { if (status) status.textContent = text; };
@@ -652,7 +801,11 @@ document.addEventListener("submit", async (event) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
     // Only filing a case answers with a plaintiff token: this browser is the plaintiff's, never a visitor.
-    if (data.plaintiffToken && data.caseId) remember(data.caseId);
+    // Filing is also the core action RepoHQ counts as "activate", once per browser.
+    if (data.plaintiffToken && data.caseId) {
+      remember(data.caseId);
+      signal("activate", () => localStorage, "repohq:activated");
+    }
     const then = form.dataset.then;
     if (then === "reveal") return reveal(form, document.getElementById(form.dataset.reveal), data);
     if (then === "deleted") return location.replace("/deleted");
@@ -725,6 +878,10 @@ if (visited && remember(visited.dataset.visit) && visited.dataset.visitor !== "p
   }).catch(() => {});
 }
 `;
+}
+
+/** The client script as every non-production deployment serves it: no launch counts. */
+export const CLIENT_JS = clientScript();
 
 export const CLIENT_CSS = `:root { color-scheme: light; --ink: #1d1a16; --paper: #fbf7ef; --accent: #7a1f1f; --muted: #6b6359; }
 * { box-sizing: border-box; }

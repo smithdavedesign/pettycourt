@@ -137,23 +137,30 @@ function formEntries(form) {
 }
 
 /**
- * Load a page and run CLIENT_JS on it.
+ * Load a page and run CLIENT_JS (or `script`, e.g. the /app.js a production app serves) on it.
  * @param {string} html
  * @param {{ fetch: (url: string, init: RequestInit) => Promise<Response>, confirm?: (message: string) => boolean,
- *   localStorage?: { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void } }} env
+ *   localStorage?: { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void },
+ *   sessionStorage?: { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void },
+ *   script?: string, origin?: string, referrer?: string, webdriver?: boolean }} env
  *   localStorage: the browser's storage (M5's visit count); without it the page has none, like a browser
- *   that blocks storage.
+ *   that blocks storage. Go-live (RepoHQ's launch counts): sessionStorage likewise, the page's origin,
+ *   document.referrer, and navigator.webdriver (true in an automated browser).
  */
-export function loadPage(html, { fetch, confirm = () => true, localStorage }) {
+export function loadPage(
+  html,
+  { fetch, confirm = () => true, localStorage, sessionStorage, script = CLIENT_JS, origin = 'http://localhost', referrer = '', webdriver = false },
+) {
   const root = parse(html);
   const listeners = {};
-  const location = { reloads: 0, assigned: [], replaced: [] };
+  const location = { origin, reloads: 0, assigned: [], replaced: [] };
   location.reload = () => {
     location.reloads += 1;
   };
   location.assign = (url) => location.assigned.push(url);
   location.replace = (url) => location.replaced.push(url);
   const document = {
+    referrer,
     addEventListener: (type, fn) => {
       listeners[type] = fn;
     },
@@ -173,10 +180,12 @@ export function loadPage(html, { fetch, confirm = () => true, localStorage }) {
     HTMLFormElement: FakeForm,
     HTMLAnchorElement: FakeAnchor,
     Element: FakeElement,
-    navigator: { clipboard: { writeText: async () => {} } },
+    URL,
+    navigator: { clipboard: { writeText: async () => {} }, webdriver },
     ...(localStorage ? { localStorage } : {}),
+    ...(sessionStorage ? { sessionStorage } : {}),
   };
-  vm.runInNewContext(CLIENT_JS, context);
+  vm.runInNewContext(script, context);
   return {
     document,
     location,

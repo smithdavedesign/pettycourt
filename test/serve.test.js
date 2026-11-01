@@ -118,11 +118,13 @@ describe('render.yaml', () => {
   });
 
   it('names every secret without a value (sync: false), and has no cron service (Render charges for cron)', () => {
-    for (const key of ['DATABASE_URL', 'GOOGLE_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'CONTACT_EMAIL']) {
+    for (const key of ['DATABASE_URL', 'GOOGLE_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'CONTACT_EMAIL', 'STRIPE_PAYMENT_LINK']) {
       expect(yaml).toMatch(new RegExp(`- key: ${key}\\n\\s+sync: false`));
     }
     expect(yaml).toMatch(/- key: CRON_SECRET\n\s+generateValue: true/);
-    expect(yaml).not.toMatch(/value:/);
+    // Go-live: the one value in the file is the non-secret production marker for RepoHQ's launch counts.
+    expect(yaml.match(/value:/g)).toHaveLength(1);
+    expect(yaml).toMatch(/- key: NEXT_PUBLIC_DEPLOY_ENV\n\s+value: production\n/);
     expect(yaml).not.toMatch(/type: cron/);
   });
 });

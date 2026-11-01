@@ -91,7 +91,7 @@ export function testDatabase() {
       }
       return counts;
     },
-    setup({ judge, renderCard, cardCache, cronSecret, payments, contactEmail, publicOrigin } = {}) {
+    setup({ judge, renderCard, cardCache, cronSecret, payments, contactEmail, publicOrigin, paymentLink, signal, siteOrigin } = {}) {
       const clock = { now: new Date(T0) };
       const judgeMock = vi.fn(judge ?? (async () => judgeReply()));
       const app = createApp({
@@ -104,6 +104,10 @@ export function testDatabase() {
         ...(payments ? { payments } : {}),
         ...(contactEmail ? { contactEmail } : {}),
         ...(publicOrigin ? { publicOrigin } : {}),
+        // Go-live: the Payment Link, RepoHQ's launch counts and the canonical origin.
+        ...(paymentLink ? { paymentLink } : {}),
+        ...(signal ? { signal } : {}),
+        ...(siteOrigin ? { siteOrigin } : {}),
       });
       const request = (path, init) => app.request(path, init);
       const post = (path, body, headers = {}) =>
