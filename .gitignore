@@ -1,0 +1,8 @@
+node_modules/
+.data/
+.vercel/
+.env
+.env.*
+coverage/
+# Throwaway render checks from the M2 build (scripts and preview PNGs); safe to delete.
+.scratch/

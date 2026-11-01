@@ -1,0 +1,30 @@
+{
+  "name": "pettycourt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Group Chat Court: file a petty case, summon the other side, let an AI judge rule.",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "start": "node scripts/dev.js",
+    "dev": "node --watch scripts/dev.js",
+    "test": "vitest run",
+    "decide": "node scripts/decide.js",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@fontsource/lora": "^5.3.0",
+    "@hono/node-server": "^2.1.5",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "hono": "^4.13.16",
+    "pg": "^8.23.1",
+    "satori": "^0.63.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.14",
+    "playwright-core": "^1.64.1",
+    "vitest": "^5.0.5"
+  }
+}

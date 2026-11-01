@@ -1,0 +1,63 @@
+{
+  "abuse": [
+    "my boyfriend hits me",
+    "My girlfriend hit me last night",
+    "he punched me when I said no",
+    "she slapped me",
+    "my partner is abusive",
+    "this is domestic violence",
+    "he threatened to kill me",
+    "she choked me",
+    "I was raped",
+    "he sexually assaulted me",
+    "my roommate keeps stalking me",
+    "he forced me to have sex"
+  ],
+  "health": [
+    "I want to kill myself",
+    "she talks about suicide",
+    "I have been self-harming",
+    "he cuts himself",
+    "my mum has cancer",
+    "she might be pregnant",
+    "he took an overdose",
+    "she has an eating disorder",
+    "he stopped taking his medication",
+    "my depression is getting worse",
+    "I think I have an STD"
+  ],
+  "money": [
+    "he owes me $500",
+    "she owes me money for the trip",
+    "he won't pay back the loan",
+    "my roommate is behind on rent",
+    "we split the mortgage",
+    "she stole my credit card",
+    "he has gambling debts",
+    "I'm going to sue him",
+    "he never pays child support",
+    "she took 2000 dollars from my account"
+  ],
+  "minors": [
+    "my 15 year old keeps lying",
+    "my son broke curfew",
+    "my daughter stays out late",
+    "my kids won't do chores",
+    "she is a minor",
+    "he is only 16",
+    "she is underage",
+    "who gets custody of the kid"
+  ],
+  "inScope": [
+    "You said five minutes away while still in the shower",
+    "He ate my leftover pad thai from the fridge",
+    "She says pineapple belongs on pizza",
+    "Stop being so childish about the remote",
+    "You're kidding if you think that was a fair game of Monopoly",
+    "He hits snooze nine times every morning",
+    "She borrowed my hoodie and never gave it back",
+    "Whose turn is it to take out the bins",
+    "He spoiled the season finale in the group chat",
+    "She owes me an apology for the karaoke incident"
+  ]
+}

@@ -1,0 +1,25 @@
+# Render Blueprint: Group Chat Court on Render's free web service, the commercial-use host for live
+# payments (Vercel Hobby is non-commercial). Same code as the Vercel deploy, started by scripts/serve.js,
+# which also runs the 30-day expiry (Render's cron jobs are paid). Node comes from package.json engines.
+# Secrets are set in the Render dashboard (sync: false); none are in this file.
+services:
+  - type: web
+    name: pettycourt
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev --ignore-scripts
+    startCommand: node scripts/serve.js
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CONTACT_EMAIL
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
