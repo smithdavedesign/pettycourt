@@ -1,7 +1,9 @@
 # Render Blueprint: Group Chat Court on Render's free web service, the commercial-use host for live
 # payments (Vercel Hobby is non-commercial). Same code as the Vercel deploy, started by scripts/serve.js,
 # which also runs the 30-day expiry (Render's cron jobs are paid). Node comes from package.json engines.
-# Secrets are set in the Render dashboard (sync: false); none are in this file.
+# Secrets are set in the Render dashboard (sync: false); none are in this file. The one value here,
+# NEXT_PUBLIC_DEPLOY_ENV, isn't a secret: it marks this service as production, so its pages send
+# RepoHQ's launch counts as the Vercel production deployment does (src/config.js).
 services:
   - type: web
     name: pettycourt
@@ -21,5 +23,9 @@ services:
         sync: false
       - key: CONTACT_EMAIL
         sync: false
+      - key: STRIPE_PAYMENT_LINK
+        sync: false
       - key: CRON_SECRET
         generateValue: true
+      - key: NEXT_PUBLIC_DEPLOY_ENV
+        value: production

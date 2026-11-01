@@ -280,7 +280,7 @@ Group Chat Court is a small web app, plus one command line for its operator (M5)
 13. **Terms and privacy** (new in M4). `/terms` and `/privacy` are linked from every page's footer and from the checkout button.
     - Terms: what $3 buys, refunds on request within 14 days.
     - Privacy: what is stored and for how long, and the processors (Google, Stripe, Neon, Vercel or Render).
-    - Both give the `CONTACT_EMAIL` address.
+    - Both give the `CONTACT_EMAIL` address. Go-live adds the repo's GitHub issues as the public contact, a "No warranty" section, the cookie and the three RepoHQ launch counts (LAUNCH-READY.md).
     - M5 adds what the visit count and the outcome rows keep, and drops the old "no analytics" line.
 14. **Visitors per case** (new in M5).
     - **What counts:** the first time a browser opens a case's page, summons link or jury link, the page's script sends `POST /visits` once, and the case's counter goes up by one.
@@ -328,7 +328,7 @@ API (JSON in, JSON out):
 | `POST /reports` `{ caseId, reason: "names_someone" \| "serious" \| "mean" \| "other", note? }` | `201 { caseId, reported: true }` and the case is down; `200` the same if it was already down (nothing stored); 400 / 404 / 413 / 415 |
 | `POST /cases/:id/unlock` `{}` | the fake-door click: `200 { caseId, clickId, charged: false, message }`; 404; 409 (declined or taken down); 415. Never calls Stripe, even with payments on |
 | `POST /cases/:id/unlock/email` `{ clickId, email }` | `200 { caseId, saved: true }`; 400 (bad email or click id); 404 (no such click on this case) |
-| `POST /cases/:id/checkout` `{}` | M4: records a click and opens a Stripe Checkout Session: `200 { caseId, clickId, url }` (`url` is on `https://checkout.stripe.com/`); 409 (not ruled, declined, taken down, already paid or appealed); 404; 415; 502 (Stripe failed); 503 (payments off) |
+| `POST /cases/:id/checkout` `{}` | M4: records a click and opens a Stripe Checkout Session: `200 { caseId, clickId, url }` (`url` is on `https://checkout.stripe.com/`); 409 (not ruled, declined, taken down, already paid or appealed); 404; 415; 502 (Stripe failed); 503 (payments off). Go-live: with Checkout off and `STRIPE_PAYMENT_LINK` set, `url` is that Payment Link with `client_reference_id=<clickId>` (see LAUNCH-READY.md) |
 | `GET /appeals/:clickId` | M4: the payer's page (HTML), Stripe's success URL. It fulfils the payment if Stripe says it's paid, then shows the receipt line and the appeal form, or the appeal. "Owed a refund" if someone else appealed first; 410 for a taken-down case (with the refund note for a payer); 404 for a wrong id or a fake-door click |
 | `POST /stripe/webhook` | M4: Stripe events, signature-checked on the raw body (300 s tolerance). `checkout.session.completed` and `…async_payment_succeeded` fulfil; other types are ignored. `200 { received: true }`; 400 bad signature; 502 Stripe unreachable (Stripe retries); 503 no `STRIPE_WEBHOOK_SECRET`; 404 with payments off |
 | `POST /cases/:id/appeal` `{ side: "plaintiff" \| "defendant", evidence }` with `Authorization: Bearer <paid click id>` | M4: `201 { caseId, caseUrl, heard, appeal: { side, evidence, filedAt, verdict, ruling, ruledAt, outcome: "upheld" \| "overturned", declined } }` once (`heard: false` plus `error` if the judge was down), then 409. Other answers: 402 unpaid; 401 no bearer; 403 not a paid click of this case; 409 not ruled, declined or taken down; 400; 404; 413; 415; 422 out of scope (nothing stored) |
@@ -343,6 +343,8 @@ API (JSON in, JSON out):
 | `POST /jury/:token/votes` `{ vote: "guilty" \| "not_guilty", comment? }` | `201 { caseId, caseUrl, vote, jury: { guilty, notGuilty, total } }` once per device (sets the `pc_device` cookie if missing), then `409 { error, jury }`; 400 / 404 / 409 (declined or taken-down case) / 413 / 415 / 422 |
 | `GET /cases/:id/card.png` | `image/png` 1080×1350 with a weak `ETag` and `Cache-Control: private, no-cache`; 304 on a matching `If-None-Match`; 404 for a wrong id, or a declined, taken-down or deleted case |
 | `POST /visits` `{ caseId }` | M5: one more visitor for the case, sent by the page's script once per browser: `204`, no cookie, capped at 100 per case; 404 (no such case, or a malformed id); 400; 415 |
+| `GET /robots.txt`, `GET /sitemap.xml` | Go-live: crawl rules (allow all, skip `/cron/`, point at the sitemap) and the three public pages (`/`, `/terms`, `/privacy`) |
+| `GET /og.png` | Go-live: the public pages' 1200×630 share image, drawn with satori like the card, cached a day |
 
 Testimony and rule also answer 409 for a taken-down case, and every case route answers 404 once it is deleted or expired.
 
@@ -350,7 +352,7 @@ Testimony and rule also answer 409 for a taken-down case, and every case route a
 
 ```
 npm install
-npm test          # 513 tests, 30–60 s, no network or keys needed (Stripe is a fake in test/stripe.js)
+npm test          # 546 tests, 30–60 s, no network or keys needed (Stripe is a fake in test/stripe.js)
 npm run dev       # http://localhost:3000 (PORT to change)
 curl http://localhost:3000/cron/expire   # run the 30-day expiry job by hand
 npm run decide    # M5: the PRD thresholds and the decision (stop `npm run dev` first when it uses local PGlite)
@@ -371,9 +373,9 @@ npm run decide -- violation <caseId> names_someone   # or `serious`: records it 
 - Run `review` every few days during the 30-case run. Each ruling shows the day its case is deleted, and a ruling deleted before review counts as a gap in the safety bar.
 - Exit codes: 0 done, 1 the command failed (no such case, a stale `ok`), 2 usage error.
 - Without `DATABASE_URL` it reads the local PGlite data of `npm run dev` (and says so). PGlite allows one process at a time, so stop the dev server first.
-- `npm run screenshots` starts `scripts/dev.js` on a free port with its own throwaway data (`.data/screenshots-db`, removed afterwards), with only `PATH` and that folder in its environment, so it never uses a real database or key.
+- `npm run screenshots` starts `scripts/dev.js` on a free port with its own throwaway data (`.data/screenshots-db`, removed afterwards), with only `PATH`, that folder and a placeholder `STRIPE_PAYMENT_LINK` (https://example.com/pay) in its environment, so it never uses a real database or key.
   - It drives the app with Playwright (`playwright-core`, a devDependency) and the Chromium at `CHROMIUM_PATH`.
-  - Then it runs the real `scripts/decide.js` and writes the six PNGs in `docs/screenshots/`.
+  - It writes six PNGs in `docs/screenshots/` (go-live: the start page, the summons, the verdict with the Buy button and the footer), and fails if the Buy button or the footer links aren't in view. The M5 decision report is no longer screenshotted; `npm run decide` still prints it.
 
 - Without `DATABASE_URL`, `npm run dev` keeps data in PGlite under `.data/pglite` (gitignored; `PGLITE_DIR` moves it, `PGLITE_DIR=memory://` keeps nothing).
 - Without an LLM key it uses the stub judge, which gives canned rulings (and canned appeal rulings), and says so on startup.
@@ -694,7 +696,9 @@ M5:
   - A violation takes the case down like a report, at once and reversible by SQL, with a `reports` row that says why.
 - **A command line, not an admin page.** A web page would need a login and a new secret on a public app. The operator already holds `DATABASE_URL` (M3 and M4 already used `psql`). The review queue strips control and bidi characters, because it prints user and model text into a terminal.
 - **The report fits 80 columns,** one metric per two lines, so it reads in a default terminal and on a phone.
-- **With payments off, nobody can pay,** so the paid bar fails and the report says fold. That's the roadmap's rule taken literally, and the screenshots show it: the sample run had the fake door, not Checkout. A run meant to test the paid bar must have live payments on (see What's left).
+- **With payments off, nobody can pay,** so the paid bar fails and the report says fold. That's the roadmap's rule taken literally: an M5 sample run with the fake door, not Checkout, folds. A run meant to test the paid bar must have live payments on (see What's left).
+
+Go-live (search, sharing, legal pages, the Payment Link and RepoHQ's launch counts): see [LAUNCH-READY.md](LAUNCH-READY.md), which lists what was done, the decisions, how to check it and what's left for David.
 
 ## What's left
 

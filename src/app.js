@@ -25,20 +25,27 @@
 //   GET  /terms, GET /privacy      the legal pages
 // M5, the decision's numbers (the report itself is the operator's `npm run decide`):
 //   POST /visits { caseId }        the client script's once-per-browser visit to a case → 204 | 404
+// Go-live (search, sharing, the Payment Link):
+//   GET  /robots.txt, /sitemap.xml  crawl rules and the public pages (/, /terms, /privacy)
+//   GET  /og.png                   the public pages' 1200×630 share image
+//   POST /cases/:id/checkout       without Checkout but with STRIPE_PAYMENT_LINK: records the click and
+//                                  answers the Payment Link with the click id as client_reference_id
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie } from 'hono/cookie';
 import { secureHeaders } from 'hono/secure-headers';
-import { cardEtag, cardModel, renderCardPng } from './card.js';
+import { cardEtag, cardModel, renderCardPng, renderSharePng } from './card.js';
 import { createDeps } from './config.js';
 import { APPELLANT_NAMES, parseRuling } from './judge.js';
 import { DECLINE_MESSAGE, screen } from './scope.js';
+import { pageMeta, robotsTxt, sitemapXml, SHARE_IMAGE } from './seo.js';
 import { APPEAL_SIDES, JURY_VOTES, REPORT_REASONS, RETENTION_MS } from './store.js';
 import {
   CLIENT_CSS,
-  CLIENT_JS,
+  SIGNAL_URL,
+  clientScript,
   COMMENT_MAX,
   EMAIL_MAX,
   EVIDENCE_MAX,
@@ -74,6 +81,8 @@ const MAX_BODY_BYTES = 16 * 1024;
 const MAX_WEBHOOK_BYTES = 64 * 1024;
 const WEBHOOK_PATH = '/stripe/webhook';
 const STATIC_CACHE = 'public, max-age=3600';
+// The share image never changes within a deployment.
+const SHARE_CACHE = 'public, max-age=86400';
 const COMMENTS_SHOWN = 50;
 // Rendered cards kept per instance, one per case (~120 KB each): a card shared in a busy group chat
 // renders once, not once per friend or link-preview bot. Deleting or expiring a case drops its entry.
@@ -204,9 +213,16 @@ function sameSecret(given, expected) {
  *   payments?: ReturnType<typeof import('./payments.js').createStripe> | null,
  *   contactEmail?: string | null,
  *   publicOrigin?: string | null,
+ *   paymentLink?: string | null,
+ *   signal?: boolean,
+ *   siteOrigin?: string | null,
+ *   renderShare?: () => Promise<Uint8Array>,
  * }} deps  cronSecret: when set, /cron/expire requires it as a bearer token (Vercel Cron sends CRON_SECRET).
  *   payments: the Stripe client; without it (or without a contactEmail for the terms) the $3 appeal stays
  *   M3's fake door. publicOrigin: the https origin to build links from behind a TLS proxy (Render).
+ *   Go-live: paymentLink, the Stripe Payment Link the Buy button opens when Checkout is off (the fake
+ *   door stays without it either). signal: the client script sends RepoHQ's launch counts (production).
+ *   siteOrigin: the canonical origin of the public pages (else publicOrigin, else the request's).
  */
 export function createApp({
   store,
@@ -218,14 +234,23 @@ export function createApp({
   payments: stripe = null,
   contactEmail = null,
   publicOrigin = null,
+  paymentLink = null,
+  signal = false,
+  siteOrigin = null,
+  renderShare = renderSharePng,
 }) {
   const app = new Hono();
   // No money without a contact on the terms page (refunds are on request).
   const payments = contactEmail ? stripe : null;
+  // How the $3 appeal is sold: Checkout (confirmed by Stripe) wins over the Payment Link (confirmed by hand).
+  const checkoutMode = payments ? 'stripe' : paymentLink ? 'link' : null;
+  const clientJs = clientScript({ signal });
 
   const declined = (c) => c.json({ error: DECLINE_MESSAGE, declined: true }, 422);
   const notFoundJson = (c) => c.json({ error: 'Not found.' }, 404);
   const origin = (c) => publicOrigin ?? new URL(c.req.url).origin;
+  /** The origin the public pages, robots.txt and the sitemap name as canonical. */
+  const canonical = (c) => siteOrigin ?? origin(c);
   const closedByDecline = (c) => c.json({ error: 'This case is closed: the court declined to hear it.' }, 409);
   const takenDown = (c) => c.json({ error: 'This case was taken down after a report.' }, 409);
   const alreadyAppealed = (c) => c.json({ error: 'This case has already been appealed. The appeal stands.' }, 409);
@@ -260,7 +285,8 @@ export function createApp({
         scriptSrc: ["'self'"],
         styleSrc: ["'self'"],
         imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
+        // RepoHQ's counter is the only other origin, and only where the script sends to it (production).
+        connectSrc: signal ? ["'self'", new URL(SIGNAL_URL).origin] : ["'self'"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         baseUri: ["'none'"],
@@ -285,11 +311,27 @@ export function createApp({
   });
   app.notFound((c) => c.html(notFoundPage(), 404));
 
-  app.get('/', (c) => c.html(homePage()));
+  app.get('/', (c) => c.html(homePage({ meta: pageMeta('home', canonical(c)) })));
 
   app.get('/app.js', (c) => {
     c.header('Cache-Control', STATIC_CACHE);
-    return c.body(CLIENT_JS, 200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    return c.body(clientJs, 200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+  });
+
+  // ── Go-live: search and sharing ───────────────────────────────────────────────────────────────────
+  app.get('/robots.txt', (c) => {
+    c.header('Cache-Control', STATIC_CACHE);
+    return c.text(robotsTxt(canonical(c)));
+  });
+  app.get('/sitemap.xml', (c) => {
+    c.header('Cache-Control', STATIC_CACHE);
+    return c.body(sitemapXml(canonical(c)), 200, { 'Content-Type': 'application/xml; charset=utf-8' });
+  });
+  // Drawn with code (satori + resvg, like the verdict card) on the first request, then kept in memory.
+  app.get(SHARE_IMAGE.path, async (c) => {
+    const png = await renderShare();
+    c.header('Cache-Control', SHARE_CACHE);
+    return c.body(png, 200, { 'Content-Type': 'image/png' });
   });
   app.get('/app.css', (c) => {
     c.header('Cache-Control', STATIC_CACHE);
@@ -381,7 +423,7 @@ export function createApp({
     const [jury, comments] = found.declinedAt
       ? [null, []]
       : await Promise.all([store.getJury(id), store.listComments(id, COMMENTS_SHOWN)]);
-    return c.html(casePage(found, now(), { jury, comments, origin: origin(c), checkout: Boolean(payments) }));
+    return c.html(casePage(found, now(), { jury, comments, origin: origin(c), checkout: checkoutMode }));
   });
 
   app.get('/cases/:id/card.png', async (c) => {
@@ -640,13 +682,20 @@ export function createApp({
     if (!CASE_ID.test(id)) return notFoundJson(c);
     const { fail } = await readJsonObject(c);
     if (fail) return c.json({ error: fail[1] }, fail[0]);
-    if (!payments) return c.json({ error: "Payments aren't switched on yet." }, 503);
+    if (!checkoutMode) return c.json({ error: "Payments aren't switched on yet." }, 503);
 
     // The click is the M5 "clicked the paid unlock" metric, so it's stored before Stripe is asked.
     const clickId = newToken();
     if (!(await store.recordCheckoutClick({ id: clickId, caseId: id, at: now() }))) {
       const found = await store.getCase(id);
       return found ? c.json({ error: whyNoCheckout(found) }, 409) : notFoundJson(c);
+    }
+    if (checkoutMode === 'link') {
+      // Go-live: Stripe's hosted Payment Link. The click id rides along as client_reference_id, so the
+      // operator can match the payment to its click by hand and email the payer /appeals/<click id>.
+      const url = new URL(paymentLink);
+      url.searchParams.set('client_reference_id', clickId);
+      return c.json({ caseId: id, clickId, url: url.href }, 200);
     }
     let session;
     try {
@@ -680,7 +729,7 @@ export function createApp({
     if (!found) return c.html(notFoundPage(), 404);
     // A payer whose case was taken down can't appeal any more, so their page says how to get the $3 back.
     if (found.reportedAt) return c.html(takenDownPage({ refundTo: click.paidAt ? (contactEmail ?? '') : null }), 410);
-    return c.html(appealPage(found, click, { contactEmail, checking }));
+    return c.html(appealPage(found, click, { contactEmail, checking, receiptLinks: checkoutMode !== 'link' }));
   });
 
   app.post(WEBHOOK_PATH, async (c) => {
@@ -835,8 +884,10 @@ export function createApp({
     return c.body(null, 204);
   });
 
-  app.get('/terms', (c) => c.html(termsPage({ contactEmail, payments: Boolean(payments) })));
-  app.get('/privacy', (c) => c.html(privacyPage({ contactEmail })));
+  app.get('/terms', (c) => c.html(termsPage({ contactEmail, checkout: checkoutMode, meta: pageMeta('terms', canonical(c)) })));
+  app.get('/privacy', (c) =>
+    c.html(privacyPage({ contactEmail, checkout: checkoutMode, meta: pageMeta('privacy', canonical(c)) })),
+  );
 
   return app;
 }
@@ -849,4 +900,7 @@ export default createApp({
   payments: production.payments,
   contactEmail: production.contactEmail,
   publicOrigin: production.publicOrigin,
+  paymentLink: production.paymentLink,
+  signal: production.signal,
+  siteOrigin: production.siteOrigin,
 });

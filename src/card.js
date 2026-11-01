@@ -8,11 +8,13 @@
 //                                after an appeal, the final verdict with "Upheld/Overturned on appeal"
 //   cardElement(model)           the satori element tree
 //   renderCardSvg / renderCardPng
+//   shareElement / renderSharePng  go-live: the public pages' 1200×630 link-preview image (no case text)
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { VERDICT_LABELS } from './judge.js';
+import { SHARE_IMAGE } from './seo.js';
 import { juryLine } from './views.js';
 
 export const CARD_WIDTH = 1080;
@@ -240,8 +242,90 @@ export async function renderCardSvg(model, { embedFont = true } = {}) {
 
 /** @returns {Promise<Uint8Array>} the card as a PNG */
 export async function renderCardPng(model) {
+  return rasterise(await renderCardSvg(model));
+}
+
+/**
+ * The share image of the public pages (og:image, twitter:image): the card's paper, ink and Lora, with the
+ * product's pitch and a verdict stamp. Fixed text only, so it is drawn once per process.
+ */
+export function shareElement() {
+  return el(
+    'div',
+    {
+      display: 'flex',
+      boxSizing: 'border-box',
+      width: SHARE_IMAGE.width,
+      height: SHARE_IMAGE.height,
+      padding: 36,
+      background: COLORS.paper,
+      color: COLORS.ink,
+      fontFamily: FONT_FAMILY,
+    },
+    el(
+      'div',
+      {
+        display: 'flex',
+        flexDirection: 'column',
+        boxSizing: 'border-box',
+        width: '100%',
+        height: '100%',
+        border: `4px solid ${COLORS.ink}`,
+        padding: '44px 56px',
+      },
+      [
+        el('div', { display: 'flex', fontSize: 24, fontWeight: 700, letterSpacing: 6, color: COLORS.accent }, 'GROUP CHAT COURT'),
+        el('div', { display: 'flex', fontSize: 92, fontWeight: 700, lineHeight: 1.1, marginTop: 16 }, 'Settle it in court.'),
+        el('div', { display: 'flex', height: 3, width: 220, background: COLORS.ink, marginTop: 26, marginBottom: 22 }, ''),
+        el(
+          'div',
+          { display: 'block', fontSize: 34, lineHeight: 1.35, maxWidth: 860 },
+          'File a petty case, summon the other side, let your friends be the jury, and let an AI judge rule.',
+        ),
+        el(
+          'div',
+          { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 'auto' },
+          [
+            el('div', { display: 'flex', fontSize: 24, color: COLORS.muted }, 'Free to file · Appeal $3 · Not legal advice'),
+            el(
+              'div',
+              {
+                display: 'flex',
+                border: `6px solid ${COLORS.accent}`,
+                borderRadius: 10,
+                padding: '2px 24px',
+                color: COLORS.accent,
+                fontSize: 60,
+                fontWeight: 700,
+                letterSpacing: 2,
+                transform: 'rotate(-6deg)',
+              },
+              'GUILTY',
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+let sharePng;
+/** @returns {Promise<Uint8Array>} the share image as a PNG, drawn once per process (a failure is retried) */
+export function renderSharePng() {
+  sharePng ??= (async () => {
+    const { satori, fonts } = await loadAssets();
+    const svg = await satori(shareElement(), { width: SHARE_IMAGE.width, height: SHARE_IMAGE.height, fonts });
+    return rasterise(svg);
+  })().catch((error) => {
+    sharePng = undefined;
+    throw error;
+  });
+  return sharePng;
+}
+
+/** An SVG from satori as a PNG at its own size. */
+async function rasterise(svg) {
   const { Resvg } = await loadAssets();
-  const svg = await renderCardSvg(model);
   const resvg = new Resvg(svg, { fitTo: { mode: 'original' }, font: { loadSystemFonts: false } });
   try {
     const image = resvg.render();

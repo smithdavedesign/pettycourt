@@ -26,7 +26,7 @@ describe('/terms', () => {
     expect(page).toContain(`mailto:${CONTACT_EMAIL}`);
   });
 
-  it('without a contact address, says so and that payments are off', async () => {
+  it('without payments, says they are off, and without a contact address has no mailto link', async () => {
     const t = db.setup();
     const page = await (await t.get('/terms')).text();
     expect(page).toMatch(/payments are switched off/i);

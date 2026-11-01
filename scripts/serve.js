@@ -34,6 +34,9 @@ export async function start({
     payments: deps.payments,
     contactEmail: deps.contactEmail,
     publicOrigin: deps.publicOrigin,
+    paymentLink: deps.paymentLink,
+    signal: deps.signal,
+    siteOrigin: deps.siteOrigin,
   });
 
   // The same route Vercel Cron calls, so deletion (and the card-cache purge) has one code path.

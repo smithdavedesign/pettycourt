@@ -8,6 +8,12 @@
 //   CONTACT_EMAIL               the public address on the terms and privacy pages; payments need it.
 //   PUBLIC_URL | RENDER_EXTERNAL_URL  optional https origin for links behind a TLS proxy (Render sets the latter).
 //   PGLITE_DIR                  local only: where the PGlite fallback keeps its data.
+// Go-live:
+//   STRIPE_PAYMENT_LINK | NEXT_PUBLIC_STRIPE_PAYMENT_LINK  optional https Stripe Payment Link: the "Buy the
+//                               appeal" button opens it when Checkout (STRIPE_SECRET_KEY) is off. Hidden without it.
+//   NEXT_PUBLIC_DEPLOY_ENV, else NEXT_PUBLIC_VERCEL_ENV, else VERCEL_ENV  "production" turns on RepoHQ's
+//                               launch counts (the client script's visit/activate/checkout signals).
+//   VERCEL_PROJECT_PRODUCTION_URL  set by Vercel: the canonical host of the public pages when PUBLIC_URL isn't set.
 // Production never falls back: no DATABASE_URL means data requests fail with a logged error, and no
 // key means a 503 from the judge. Local mode (scripts/dev.js) uses PGlite and the stub judge instead.
 
@@ -19,15 +25,18 @@ import { createStore } from './store.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** An https origin from a URL, or null for anything else. */
-function httpsOrigin(value) {
+/** An https URL, or null for anything else. */
+function httpsUrl(value) {
   try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.origin : null;
+    const url = new URL(String(value ?? '').trim());
+    return url.protocol === 'https:' ? url : null;
   } catch {
     return null;
   }
 }
+
+/** An https origin from a URL, or null for anything else. */
+const httpsOrigin = (value) => httpsUrl(value)?.origin ?? null;
 
 /** Adapt a PGlite instance to the store's `{ query, exec }` client. */
 export function pgliteDb(pglite) {
@@ -79,7 +88,8 @@ const missingDatabase = {
 /**
  * @param {Record<string, string | undefined>} env
  * @param {{ local?: boolean, pgliteDir?: string }} [options]
- * paymentsKind: 'stripe' (Checkout on), 'off' (M3's fake door), or 'no-contact' (a key but no CONTACT_EMAIL, so off).
+ * paymentsKind: 'stripe' (Checkout on), 'link' (the Payment Link's Buy button), 'off' (M3's fake door), or
+ * 'no-contact' (a key but no CONTACT_EMAIL, so Checkout is off; a Payment Link still works).
  */
 export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '.data/pglite' } = {}) {
   let db;
@@ -112,6 +122,13 @@ export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '
   } else if (env.STRIPE_SECRET_KEY) {
     paymentsKind = 'no-contact';
   }
+  // Go-live: a Stripe Payment Link needs no key. Checkout, when on, wins, because it confirms payments itself.
+  const paymentLink = httpsUrl(env.STRIPE_PAYMENT_LINK || env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK)?.href ?? null;
+  if (!payments && paymentLink) paymentsKind = 'link';
+
+  const publicOrigin = httpsOrigin(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || '');
+  const vercelHost = (env.VERCEL_PROJECT_PRODUCTION_URL ?? '').trim();
+  const deployEnv = env.NEXT_PUBLIC_DEPLOY_ENV || env.NEXT_PUBLIC_VERCEL_ENV || env.VERCEL_ENV || '';
 
   return {
     store: createStore(() => db.connect()),
@@ -119,7 +136,12 @@ export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '
     cronSecret: env.CRON_SECRET || null,
     payments,
     contactEmail,
-    publicOrigin: httpsOrigin(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || ''),
+    publicOrigin,
+    paymentLink,
+    // RepoHQ's launch counts go out from the production deployment only, never from previews or local runs.
+    signal: deployEnv === 'production',
+    // The canonical origin of the public pages (canonical, og:url, sitemap): a preview deployment points at production.
+    siteOrigin: publicOrigin ?? (vercelHost ? httpsOrigin(`https://${vercelHost}`) : null),
     dbKind,
     judgeKind,
     paymentsKind,
