@@ -14,9 +14,12 @@
 //   NEXT_PUBLIC_DEPLOY_ENV, else NEXT_PUBLIC_VERCEL_ENV, else VERCEL_ENV  "production" turns on RepoHQ's
 //                               launch counts (the client script's visit/activate/checkout signals).
 //   VERCEL_PROJECT_PRODUCTION_URL  set by Vercel: the canonical host of the public pages when PUBLIC_URL isn't set.
+// On the Cloudflare Worker (src/worker.js, wrangler.jsonc) PUBLIC_URL and NEXT_PUBLIC_DEPLOY_ENV are vars, the
+// rest secrets, and Postgres is requestScopedPostgres below.
 // Production never falls back: no DATABASE_URL means data requests fail with a logged error, and no
 // key means a 503 from the judge. Local mode (scripts/dev.js) uses PGlite and the stub judge instead.
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync } from 'node:fs';
 import pg from 'pg';
 import { createJudge, stubJudge } from './judge.js';
@@ -61,6 +64,43 @@ function postgres(connectionString) {
   };
 }
 
+/**
+ * Postgres on a Cloudflare Worker, which can't use a socket opened by another request. The store keeps one
+ * client per process (it runs the schema once), so this client is stable, and each query goes to a pool that
+ * belongs to the request it runs in, opened on first use (pages that don't touch the database never connect).
+ * `run(fn, waitUntil)` is that request: when fn settles, its pool is ended, after the response through
+ * `waitUntil` when given. A query outside run() is a bug, and throws.
+ * @param {string} connectionString
+ * @param {{ Pool?: typeof pg.Pool }} [options]
+ */
+export function requestScopedPostgres(connectionString, { Pool = pg.Pool } = {}) {
+  const requests = new AsyncLocalStorage();
+  const pool = () => {
+    const scope = requests.getStore();
+    if (!scope) throw new Error('database query outside a request');
+    // One connection: a request's queries run one after another.
+    scope.pool ??= new Pool({ connectionString, max: 1 });
+    return scope.pool;
+  };
+  const client = { query: (sql, params) => pool().query(sql, params), exec: (sql) => pool().query(sql) };
+  return {
+    connect: async () => client,
+    close: async () => {},
+    async run(fn, waitUntil) {
+      const scope = { pool: null };
+      try {
+        return await requests.run(scope, fn);
+      } finally {
+        if (scope.pool) {
+          const ended = scope.pool.end().catch(() => {});
+          if (waitUntil) waitUntil(ended);
+          else await ended;
+        }
+      }
+    },
+  };
+}
+
 function pglite(dataDir) {
   let instance;
   return {
@@ -87,14 +127,15 @@ const missingDatabase = {
 
 /**
  * @param {Record<string, string | undefined>} env
- * @param {{ local?: boolean, pgliteDir?: string }} [options]
+ * @param {{ local?: boolean, pgliteDir?: string, database?: (url: string) => { connect(): Promise<any>, close(): Promise<void> } }} [options]
+ * database: how DATABASE_URL is reached (default: one pg.Pool per process; the Worker passes requestScopedPostgres).
  * paymentsKind: 'stripe' (Checkout on), 'link' (the Payment Link's Buy button), 'off' (M3's fake door), or
  * 'no-contact' (a key but no CONTACT_EMAIL, so Checkout is off; a Payment Link still works).
  */
-export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '.data/pglite' } = {}) {
+export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '.data/pglite', database = postgres } = {}) {
   let db;
   let dbKind;
-  if (env.DATABASE_URL) [db, dbKind] = [postgres(env.DATABASE_URL), 'postgres'];
+  if (env.DATABASE_URL) [db, dbKind] = [database(env.DATABASE_URL), 'postgres'];
   else if (local) [db, dbKind] = [pglite(pgliteDir), 'pglite'];
   else [db, dbKind] = [missingDatabase, 'missing'];
 
@@ -146,5 +187,6 @@ export function createDeps(env, { local = false, pgliteDir = env.PGLITE_DIR || '
     judgeKind,
     paymentsKind,
     close: () => db.close(),
+    db,
   };
 }

@@ -101,12 +101,12 @@ After the deploy:
 
 ## What's left for David
 
-1. **Create the Stripe Payment Link and paste it into Vercel.** The pipeline runs `.provision`'s `request` line, but the link itself is yours to make.
+1. **Create the Stripe Payment Link and store it for the Worker.** The pipeline runs `.provision`'s `request` line, but the link itself is yours to make.
    - In Stripe, go to Payment links → New. Set it up as:
      - product "Group Chat Court: one appeal", $3.00 USD, one-time, quantity fixed at 1
      - after payment, "Show confirmation page" with a message like "Thanks! We'll email the link to file your appeal within 2 days."
    - Turn on Settings → Customer emails → Successful payments.
-   - Paste the link's URL into the Vercel project env as **`STRIPE_PAYMENT_LINK`** (Production), then redeploy. On Render, set the same variable in the dashboard.
+   - Store the link's URL as **`STRIPE_PAYMENT_LINK`** (`~/ai-stack/bin/secrets add pettycourt STRIPE_PAYMENT_LINK`), then push it with `provision cloudflare secret pettycourt STRIPE_PAYMENT_LINK`. The Worker reads it on every request, so no redeploy is needed.
 2. **Confirm each payment by hand within 2 days.** In Stripe, the payment shows a `client_reference_id`, which is the click id, and a `cs_live_…` session id. Run this with `psql "$DATABASE_URL"` (the URL comes from the keychain):
 
    ```sql
@@ -126,13 +126,11 @@ After the deploy:
      - The case is gone.
 
      In the last two cases, refund the payment in Stripe and don't send an appeal link. BUILD.md's refunds-owed query lists the rest.
-3. **Decide where the money is taken.** Vercel Hobby bars commercial use, and REVENUE.md says to move before a payment link is live. The options:
-   - Render's free web service: `render.yaml` is ready and already carries `STRIPE_PAYMENT_LINK` and the production marker.
-   - A paid Vercel plan.
+3. **Where the money is taken: decided by the move.** Since 2026-11-08 the site runs on a Cloudflare Worker (BUILD.md, "Deploy"), and Cloudflare allows commercial use, so Vercel Hobby's bar no longer applies. `render.yaml` stays as a fallback.
 4. **Make sure the GitHub repo is public.** The footer's Contact link and the legal pages point at `github.com/smithdavedesign/pettycourt/issues`. If the repo is private, visitors can't reach it.
 5. **Delete the four superseded screenshots.** The sandbox didn't allow deleting files, so they're still on disk and no longer referenced: `git rm docs/screenshots/file-a-case-desktop.png docs/screenshots/file-a-case-mobile.png docs/screenshots/decision-desktop.png docs/screenshots/decision-mobile.png`
 6. **Optional:**
-   - A custom domain costs money, so it wasn't set up. Vercel's `VERCEL_PROJECT_PRODUCTION_URL` picks one up as the canonical host automatically. On Render, set `PUBLIC_URL`.
+   - A custom domain costs money, so it wasn't set up. To add one, attach it to the `pettycourt` Worker in Cloudflare and set `PUBLIC_URL` in `wrangler.jsonc`.
    - Submit `https://<host>/sitemap.xml` in Google Search Console.
 7. **Everything under "What's left" in BUILD.md still stands:** the 30-case run, the safety review, the decision and a rate limit.
 

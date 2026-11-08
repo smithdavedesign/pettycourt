@@ -9,10 +9,16 @@
 //   cardElement(model)           the satori element tree
 //   renderCardSvg / renderCardPng
 //   shareElement / renderSharePng  go-live: the public pages' 1200×630 link-preview image (no case text)
+//   setCardAssets(load)          the Cloudflare Worker's loader (src/worker.js): a Worker can't read files or
+//                                compile wasm at run time, so its fonts and wasm are bundled at deploy
+//
+// satori's standalone build is used, so its layout engine's wasm comes from the same loader as resvg's
+// instead of being compiled from bytes inlined in satori's code.
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import loraUnicode from '@fontsource/lora/unicode.json' with { type: 'json' };
 import { VERDICT_LABELS } from './judge.js';
 import { SHARE_IMAGE } from './seo.js';
 import { juryLine } from './views.js';
@@ -25,14 +31,12 @@ const HOST_MAX_CHARS = 60;
 // Bump when the design changes, so cached cards stop matching their old ETag.
 const CARD_VERSION = 1;
 
-const require = createRequire(import.meta.url);
-
 // Lora (SIL Open Font License) from @fontsource. Each subset gets its own family name because satori
 // only falls back across *different* families for glyphs the first one lacks. The specifiers are
 // static strings so Vercel's file tracer ships the files with the function.
-const FONT_SUBSETS = ['latin', 'latin-ext', 'cyrillic', 'vietnamese'];
+export const FONT_SUBSETS = ['latin', 'latin-ext', 'cyrillic', 'vietnamese'];
 const FONT_FAMILY = FONT_SUBSETS.map((subset) => `Lora-${subset}`).join(', ');
-const fontFiles = () => [
+const fontFiles = (require) => [
   ['latin', 400, require.resolve('@fontsource/lora/files/lora-latin-400-normal.woff2')],
   ['latin', 700, require.resolve('@fontsource/lora/files/lora-latin-700-normal.woff2')],
   ['latin-ext', 400, require.resolve('@fontsource/lora/files/lora-latin-ext-400-normal.woff2')],
@@ -48,7 +52,7 @@ const COLORS = { paper: '#fbf7ef', ink: '#1d1a16', accent: '#7a1f1f', muted: '#6
 /** Code point ranges the bundled subsets can draw, from the font package's own unicode.json. */
 let drawableRanges;
 function isDrawable(codePoint) {
-  drawableRanges ??= FONT_SUBSETS.flatMap((subset) => require('@fontsource/lora/unicode.json')[subset].split(',')).map(
+  drawableRanges ??= FONT_SUBSETS.flatMap((subset) => loraUnicode[subset].split(',')).map(
     (range) => {
       const [start, end = start] = range.trim().replace(/U\+/g, '').split('-');
       return [parseInt(start, 16), parseInt(end, 16)];
@@ -210,19 +214,41 @@ export function cardElement(model) {
   );
 }
 
+/**
+ * The files the renderer needs, read from node_modules (Node, Vercel, Render): each wasm as bytes and each
+ * font as `{ subset, weight, data }`. A Worker passes its own to setCardAssets: compiled wasm modules (both
+ * initialisers take one) and the bundled font bytes.
+ * @returns {Promise<{ resvgWasm: BufferSource | WebAssembly.Module, layoutWasm: BufferSource | WebAssembly.Module,
+ *   fonts: { subset: string, weight: number, data: ArrayBuffer | Uint8Array }[] }>}
+ */
+async function readCardAssets() {
+  const require = createRequire(import.meta.url);
+  return {
+    resvgWasm: readFileSync(require.resolve('@resvg/resvg-wasm/index_bg.wasm')),
+    layoutWasm: readFileSync(require.resolve('satori/layout.wasm')),
+    fonts: fontFiles(require).map(([subset, weight, path]) => ({ subset, weight, data: readFileSync(path) })),
+  };
+}
+
+let cardAssets = readCardAssets;
+/** Replaces where the renderer's wasm and fonts come from; call before the first card. */
+export function setCardAssets(load) {
+  cardAssets = load;
+}
+
 let assets;
 /** satori, resvg and the fonts, loaded once per process; a failure is retried on the next card. */
 function loadAssets() {
   assets ??= (async () => {
-    const [{ default: satori }, { Resvg, initWasm }] = await Promise.all([import('satori'), import('@resvg/resvg-wasm')]);
-    const fonts = fontFiles().map(([subset, weight, path]) => ({
-      name: `Lora-${subset}`,
-      data: readFileSync(path),
-      weight,
-      style: 'normal',
-    }));
+    const [{ default: satori, init: initLayout }, { Resvg, initWasm }, files] = await Promise.all([
+      import('satori/standalone'),
+      import('@resvg/resvg-wasm'),
+      cardAssets(),
+    ]);
+    const fonts = files.fonts.map(({ subset, weight, data }) => ({ name: `Lora-${subset}`, data, weight, style: 'normal' }));
+    await initLayout(files.layoutWasm);
     // Last, because resvg's wasm can only be initialised once per process.
-    await initWasm(readFileSync(require.resolve('@resvg/resvg-wasm/index_bg.wasm')));
+    await initWasm(files.resvgWasm);
     return { satori, Resvg, fonts };
   })().catch((error) => {
     assets = undefined;

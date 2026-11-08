@@ -430,6 +430,21 @@ The M4 gate query above counts only the cases still stored, a rolling 30-day win
 
 ## Deploy on a free tier
 
+### Cloudflare Worker (live since 2026-11-08)
+
+Vercel blocked the agent account on 2026-10-31 (every deployment answers 402), so pettycourt runs on a Worker: https://pettycourt.1426davejobs.workers.dev. It's on Workers Paid because a verdict card takes 0.1–1 s of CPU and the free plan allows 10 ms; `limits.cpu_ms` is 30 s. Cloudflare allows commercial use, so this is also where the money can be taken.
+
+- **Deploy.** Run `provision cloudflare deploy pettycourt "$PWD"` from a checkout of main. There's no build step: wrangler bundles `src/worker.js`. Secrets go through the broker with `provision cloudflare secret pettycourt DATABASE_URL`, and the same for `GOOGLE_API_KEY`. The optional ones (`STRIPE_PAYMENT_LINK`, `CONTACT_EMAIL`, Stripe keys, `CRON_SECRET`) are set the same way and are read on every request.
+- **Settings.** The `wrangler.jsonc` vars are `PUBLIC_URL` (links and canonical URLs) and `NEXT_PUBLIC_DEPLOY_ENV=production` (RepoHQ's launch counts).
+- **Postgres.** `pg` reaches Neon over the Workers socket API. A Worker can't use a socket another request opened, so `requestScopedPostgres` (`src/config.js`) gives the store one stable client. Each query goes to a one-connection pool that belongs to its request (`AsyncLocalStorage`). The pool is opened on first use and ended after the response. The schema still runs once per isolate.
+- **Cards on a Worker.** A Worker can't read files or compile wasm at run time, which takes three changes:
+  - The wasm for resvg and for satori's layout engine, and the eight Lora fonts, are imported in `src/worker.js` and given to `card.js` through `setCardAssets`. `card.js` now uses `satori/standalone` and initialises its layout engine from that wasm; under Node it reads the same files.
+  - satori shapes text with harfbuzz (emscripten). It compiles its inline wasm, plus a 34-byte wrapper module for a JS callback, at run time. Without help, the first card waited forever. `src/harfbuzz-wasm.js`, imported first, swaps both compiles for modules wrangler compiled at deploy: the identical `harfbuzzjs/hb.wasm`, and `src/harfbuzz-callback-vi.wasm`. `test/worker.test.js` renders a card under Node, records every module compiled from bytes, and checks each one is bundled, so a satori upgrade that needs another fails a test, not production.
+  - `define` gives the bundle a fixed `import.meta.url` and `self.location.href`. Neither is ever fetched.
+- **Expiry.** A Cron Trigger at 04:17 UTC (`src/schedule.js`) calls `/cron/expire` inside the Worker. It sends `CRON_SECRET` if one is set, since the route requires it then. `vercel.json` is gone; the pages' deletion promise is tested against `src/schedule.js`.
+
+The two sections below describe the earlier hosts. They're kept because the code still runs there: `src/app.js`'s default export and `scripts/serve.js`.
+
 Two targets from the same code: **Vercel Hobby** for the free, test-mode run, and **Render's free web service** for live payments, because Vercel Hobby is non-commercial. Both use the same Neon database and Gemini key.
 
 ### Vercel Hobby + Neon free + Gemini free (+ Stripe test mode)

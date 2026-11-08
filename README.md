@@ -1,5 +1,7 @@
 # pettycourt — Group Chat Court: a mock trial for petty arguments
 
+**Live:** https://pettycourt.1426davejobs.workers.dev (a Cloudflare Worker since 2026-11-08; BUILD.md, "Deploy on a free tier").
+
 ## Screenshots
 
 Taken by `npm run screenshots` against the local app (stub judge, sample data, and a placeholder `STRIPE_PAYMENT_LINK` of https://example.com/pay), in Chromium at 1280×800 and as an iPhone 13, during one real trial with separate browsers for the plaintiff, the defendant and three jurors.

@@ -15,7 +15,7 @@
 //   POST /reports { caseId, … }    anyone takes the case down → 201, then 200 | 404
 //   POST /cases/:id/unlock         fake-door "Full trial · $3" click → 200 { clickId, charged: false } | 404 | 409
 //   POST /cases/:id/unlock/email   optional email for that click → 200 | 400 | 404
-//   GET  /cron/expire              the 30-day expiry job (Vercel Cron, daily) → 200 { deleted } | 401
+//   GET  /cron/expire              the 30-day expiry job (the Worker's Cron Trigger, daily) → 200 { deleted } | 401
 // M4, the $3 appeal (when `payments` is configured; otherwise the M3 fake door stays):
 //   POST /cases/:id/checkout       record a click, open a Stripe Checkout Session → 200 { clickId, url } | 409 | 502 | 503
 //   GET  /appeals/:clickId         the payer's page (Stripe's success URL): fulfils, then the appeal form
@@ -632,7 +632,7 @@ export function createApp({
     return c.json({ caseId: id, saved: true }, 200);
   });
 
-  // The 30-day expiry job, run daily by Vercel Cron (vercel.json). The cutoff comes from the server
+  // The 30-day expiry job, run daily by the Worker's Cron Trigger (src/schedule.js, src/worker.js). The cutoff comes from the server
   // clock only, so a caller can at most make it run early, which deletes nothing that shouldn't go.
   // That is why it still runs when CRON_SECRET isn't set; when it is set, it is required.
   app.get('/cron/expire', async (c) => {

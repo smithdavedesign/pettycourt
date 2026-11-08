@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RETENTION_MS } from '../src/app.js';
+import { EXPIRY_CRON } from '../src/schedule.js';
 import { DAY, T0, newDevice, testDatabase } from './helpers.js';
 
 const db = testDatabase();
@@ -73,15 +73,14 @@ describe('M3 exit criterion: the expiry job removes cases older than 30 days (fa
     expect(RETENTION_MS).toBe(30 * DAY);
   });
 
-  it('keeps the promise the pages make, given the daily cron time in vercel.json', async () => {
+  it('keeps the promise the pages make, given the daily cron time (src/schedule.js)', async () => {
     await db.sql('DELETE FROM cases');
     const t = db.setup();
     const filed = await t.fileCase(); // T0 is 12:00 UTC on 2026-11-01
     for (const path of [`/cases/${filed.caseId}`, `/plaintiff/${filed.plaintiffToken}`, `/summons/${filed.summonsToken}`]) {
       expect(await (await t.get(path)).text(), path).toContain('on 2026-12-01 or the day after');
     }
-    const [{ schedule }] = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8')).crons;
-    const [minute, hour] = schedule.split(' ').map(Number);
+    const [minute, hour] = EXPIRY_CRON.split(' ').map(Number);
     const cronOn = (day) => new Date(Date.UTC(2026, 11, day, hour, minute));
     // The run on 1 December comes before the case turns 30 days old; the run on 2 December deletes it.
     t.clock.now = cronOn(1);
@@ -171,18 +170,11 @@ describe('who can run the job', () => {
   });
 });
 
-describe('vercel.json', () => {
-  it('runs /cron/expire once a day, which is what Vercel Hobby allows', () => {
-    const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
-    expect(config.crons).toHaveLength(1);
-    const [cron] = config.crons;
-    expect(cron.path).toBe('/cron/expire');
-    const [minute, hour, ...rest] = cron.schedule.split(' ');
-    // Fixed minute and hour, every day: anything more frequent fails a Hobby deploy.
+describe('the expiry schedule', () => {
+  it('runs once a day, at a fixed minute and hour (wrangler.jsonc is checked against it in worker.test.js)', () => {
+    const [minute, hour, ...rest] = EXPIRY_CRON.split(' ');
     expect(minute).toMatch(/^\d{1,2}$/);
     expect(hour).toMatch(/^\d{1,2}$/);
     expect(rest).toEqual(['*', '*', '*']);
-    // Nothing else in vercel.json, so Vercel's zero-config Hono detection is untouched.
-    expect(Object.keys(config).filter((k) => k !== '$schema')).toEqual(['crons']);
   });
 });
