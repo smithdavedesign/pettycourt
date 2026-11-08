@@ -2,7 +2,18 @@
 
 **Live:** https://pettycourt.1426davejobs.workers.dev (a Cloudflare Worker since 2026-11-08; BUILD.md, "Deploy on a free tier").
 
-## Screenshots
+## On the live site (2026-11-08)
+
+Taken in Chromium against https://pettycourt.1426davejobs.workers.dev, at 1280×800 and as an iPhone 13, during one real case: filed, answered, ruled on by the live judge and then deleted.
+
+![The live start page on desktop](docs/screenshots/live-home-desktop.png)
+![The live start page on an iPhone 13](docs/screenshots/live-home-mobile.png)
+![The live summons page on desktop](docs/screenshots/live-summons-desktop.png)
+![The live summons page on an iPhone 13](docs/screenshots/live-summons-mobile.png)
+![The live verdict on desktop: "Verdict: Split decision" in the case of the vanishing leftovers](docs/screenshots/live-verdict-desktop.png)
+![The live verdict on an iPhone 13](docs/screenshots/live-verdict-mobile.png)
+
+## Screenshots (local app)
 
 Taken by `npm run screenshots` against the local app (stub judge, sample data, and a placeholder `STRIPE_PAYMENT_LINK` of https://example.com/pay), in Chromium at 1280×800 and as an iPhone 13, during one real trial with separate browsers for the plaintiff, the defendant and three jurors.
 
