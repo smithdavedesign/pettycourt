@@ -34,7 +34,7 @@ const REPORT_LABELS = {
 };
 
 /**
- * When the expiry job deletes this case. It runs once a day (04:17 UTC, vercel.json), so a case goes
+ * When the expiry job deletes this case. It runs once a day (04:17 UTC, src/schedule.js), so a case goes
  * at the first run after it turns 30 days old: on that day (UTC) or the next.
  */
 const deletionNote = (c) => {
@@ -696,7 +696,7 @@ export function privacyPage({ contactEmail, checkout = null, meta = null }) {
   checkout === 'link' &&
   html` Stripe shows us the email address you pay with, which we use only to send you the link to your appeal and to answer a refund request.`
 }</li>
-<li>The database runs on Neon, and the app on Vercel or Render, which keep short request logs that include the links opened.</li>
+<li>The database runs on Neon, and the app on Cloudflare (Workers), which keeps short request logs that include the links opened.</li>
 <li><strong>RepoHQ</strong> receives the launch counts above, and nothing else.</li>
 </ul></section>
 <section><h2>How long, and how to delete it</h2>

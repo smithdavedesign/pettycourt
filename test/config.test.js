@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { createDeps, pgliteDb } from '../src/config.js';
+import { createDeps, pgliteDb, requestScopedPostgres } from '../src/config.js';
 import { createStore } from '../src/store.js';
 import { newDevice } from './helpers.js';
 
@@ -338,5 +338,90 @@ describe('Vercel entry (src/app.js default export)', () => {
       console.error = original;
     }
     expect(errors.join('\n')).toMatch(/DATABASE_URL is not set/);
+  });
+});
+
+describe('requestScopedPostgres (the Cloudflare Worker)', () => {
+  // A stand-in for pg.Pool that records what each pool was asked and whether it was ended.
+  function fakePools() {
+    const pools = [];
+    class Pool {
+      constructor(options) {
+        this.options = options;
+        this.queries = [];
+        this.ended = false;
+        pools.push(this);
+      }
+      async query(sql, params) {
+        if (this.ended) throw new Error('pool already ended');
+        this.queries.push([sql, params]);
+        return { rows: [{ sql }] };
+      }
+      async end() {
+        this.ended = true;
+      }
+    }
+    return { pools, Pool };
+  }
+
+  it('gives each request its own pool, ends it after the request, and never opens one for a request with no query', async () => {
+    const { pools, Pool } = fakePools();
+    const db = requestScopedPostgres(FAKE_DB_URL, { Pool });
+    const client = await db.connect();
+    expect(await db.connect()).toBe(client); // the store keeps one client per process
+
+    await db.run(async () => {
+      await client.query('SELECT 1', []);
+      await client.exec('SELECT 2');
+    });
+    await db.run(async () => 'no query');
+    const waited = [];
+    await db.run(() => client.query('SELECT 3'), (p) => waited.push(p));
+    await Promise.all(waited);
+
+    expect(pools).toHaveLength(2);
+    expect(pools.map((p) => p.queries.map(([sql]) => sql))).toEqual([['SELECT 1', 'SELECT 2'], ['SELECT 3']]);
+    expect(pools.every((p) => p.ended)).toBe(true);
+    expect(pools[0].options).toEqual({ connectionString: FAKE_DB_URL, max: 1 });
+    expect(waited).toHaveLength(1); // ended through waitUntil, after the response
+  });
+
+  it('keeps concurrent requests apart, ends the pool when the request fails, and refuses a query outside a request', async () => {
+    const { pools, Pool } = fakePools();
+    const db = requestScopedPostgres(FAKE_DB_URL, { Pool });
+    const client = await db.connect();
+    const tick = () => new Promise((r) => setTimeout(r, 1));
+    await Promise.all([
+      db.run(async () => {
+        await client.query('A1');
+        await tick();
+        await client.query('A2');
+      }),
+      db.run(async () => {
+        await tick();
+        await client.query('B1');
+      }),
+    ]);
+    expect(pools.map((p) => p.queries.map(([sql]) => sql)).sort()).toEqual([['A1', 'A2'], ['B1']]);
+
+    await expect(
+      db.run(async () => {
+        await client.query('C1');
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect(pools.at(-1).ended).toBe(true);
+    expect(() => client.query('outside')).toThrow('outside a request');
+  });
+
+  it('runs the store (schema once, then queries) on the request it is in', async () => {
+    const { pools, Pool } = fakePools();
+    const db = requestScopedPostgres(FAKE_DB_URL, { Pool });
+    const deps = createDeps({ DATABASE_URL: FAKE_DB_URL }, { database: () => db });
+    await db.run(() => deps.store.ready());
+    await db.run(() => deps.store.ready());
+    expect(pools).toHaveLength(1); // the second request needed no query
+    expect(pools[0].queries[0][0]).toContain('CREATE TABLE');
+    expect(deps.db).toBe(db);
   });
 });

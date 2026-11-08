@@ -1,0 +1,34 @@
+{
+  // The pettycourt Worker on Cloudflare (Workers Paid, for the verdict card's rendering CPU):
+  // `provision cloudflare deploy pettycourt "$PWD"`. No build step: wrangler bundles src/worker.js at deploy.
+  "name": "pettycourt",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-15",
+  // Sockets for pg, node:crypto (card ETags, Stripe signatures), AsyncLocalStorage (src/config.js), process.env.
+  "compatibility_flags": ["nodejs_compat"],
+  // Kept off as on the other Workers: esbuild's keepNames puts __name() calls into functions' source.
+  "keep_names": false,
+  // Two base addresses the bundle lacks, neither ever fetched: card.js calls createRequire(import.meta.url) on
+  // Node only, but import.meta.url isn't a URL inside the bundle; satori's emscripten loader reads
+  // self.location.href when it sees a worker, and workerd has no self.location.
+  "define": {
+    "import.meta.url": "\"file:///bundle/src/card.js\"",
+    "self.location.href": "\"file:///bundle/\""
+  },
+  // The renderer's wasm is bundled as compiled modules (wrangler's default for .wasm); the fonts as bytes.
+  "rules": [{ "type": "Data", "globs": ["**/*.woff2"], "fallthrough": false }],
+  // A verdict card is 0.1 to 1 s of CPU.
+  "limits": { "cpu_ms": 30000 },
+  "vars": {
+    // Links and canonical URLs (a custom domain goes here).
+    "PUBLIC_URL": "https://pettycourt.1426davejobs.workers.dev",
+    // The Worker is production: pages send RepoHQ's launch counts.
+    "NEXT_PUBLIC_DEPLOY_ENV": "production"
+  },
+  // Secrets: `provision cloudflare secret pettycourt DATABASE_URL` and GOOGLE_API_KEY. Stripe, CONTACT_EMAIL,
+  // STRIPE_PAYMENT_LINK and CRON_SECRET are optional (src/config.js).
+  // The 30-day expiry (src/schedule.js), daily at 04:17 UTC.
+  "triggers": { "crons": ["17 4 * * *"] },
+  "workers_dev": true,
+  "observability": { "enabled": true }
+}
